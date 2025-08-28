@@ -1,4 +1,6 @@
 ﻿using System.Diagnostics;
+using System.Reactive.Linq;
+using Serilog;
 using Typstio.Core;
 using Typstio.Core.Extensions;
 using Typstio.Core.Functions;
@@ -7,6 +9,26 @@ using Typstio.Core.Functions.Containers;
 using Typstio.Core.Functions.Text;
 using Typstio.Core.Models;
 using Typstio.Core.Services;
+
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console()
+    .MinimumLevel.Debug()
+    .CreateLogger();
+
+var cts = new CancellationTokenSource();
+
+var shutdown = Observable.FromEventPattern<ConsoleCancelEventHandler, ConsoleCancelEventArgs>(
+    h => Console.CancelKeyPress += h,
+    h => Console.CancelKeyPress -= h
+).Take(1);
+
+shutdown.Subscribe(_ =>
+{
+    cts.Cancel();
+    cts.Dispose();
+});
+
+Log.Information("Started. Writing typist content by C#.");
 
 var document = new ContentWriter();
 
@@ -19,37 +41,19 @@ document.Write(new Box(c => c.WriteString("Hello, Typst!"), new Rgb("#ff4136")))
 document.WriteBlock();
 
 document.Write(CreateUserTable());
-document.WriteBlock();
 
-// document.Write(CreateTemplateCard("Иван Иванов", "03.12.2003", "89531357830", "ivan@gmail.com"));
-// document.WriteBlock();
-
-Console.WriteLine(CodeGenerator.ToCode(document));
-
-Console.WriteLine("Saving local");
+Log.Information("Starting to compile the final pdf file. Typst will load automatically.");
 
 const string output = "./code.pdf";
-await new TypstCompiler().PdfAsync(document, "./code.txt", output);
+await new TypstCompiler().PdfAsync(document, "./code.txt", output).ConfigureAwait(false);
 
 Process.Start("explorer", Path.GetFullPath(output));
 
-Console.WriteLine("OK");
+Log.Information("Done. Shutdown.");
 
-void WriteTextContent(ContentWriter textContent)
-{
-    textContent.WriteString("Hello, ");
-    textContent.Write(new Strong(c => c.WriteString("world")));
-}
+Console.WriteLine(CodeGenerator.ToCode(document));
 
-IEnumerable<Content> GetItems()
-{
-    return new Content[]
-    {
-        c => c.Write(new Image("profile.jpg", width: "20%")),
-        c => c.WriteString("Two"),
-        c => c.WriteString("Three")
-    };
-}
+return;
 
 ITypstFunction CreateUserTable()
 {
@@ -66,40 +70,4 @@ ITypstFunction CreateUserTable()
     };
     
     return new Table(("auto", "1fr", "1fr"), items, inset: "10pt", align: "horizon");
-}
-
-ITypstFunction CreateTemplateCard(string name, string birth, string phone, string email)
-{
-    return new Box(main =>
-    {
-        // Header
-        main.Write(new Box(h => h.WriteString(name), color: Colors.Red, width: "100%"));
-        
-        // Body
-        main.Write(
-            new Box(body => body.Write(
-                new Padding(pd => pd.Write(
-                    new Grid(new Content[]
-                    {
-                        // Column 1
-                        gridCol => gridCol
-                            .WriteString("Birth").Linebreak()
-                            .WriteString("Phone").Linebreak()
-                            .WriteString("Email").Linebreak(),
-
-                        // Column 2
-                        gridCol => gridCol
-                            .WriteString(birth).Linebreak()
-                            .WriteString(phone).Linebreak()
-                            .WriteString(email.Replace("@", "\\@")).Linebreak(),
-
-                        // Column 3
-                        gridCol => gridCol
-                            .Write(new Image("profile.jpg", height: "auto"))
-
-                    }, columns: ("15%", "50%", "auto"))), top: "-10pt")
-                )
-            )
-        );
-    }, Colors.Gray, width: "100%", inset: "0pt");
 }
